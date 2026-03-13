@@ -1,338 +1,178 @@
-"""
-read_confluence MCP 툴
+# Requirements Compression Prompt
 
-흐름:
-  1. ref_url → page_id 추출
-  2. Confluence API로 storage HTML 가져오기
-  3. HTML 파싱 (텍스트 + 이미지 placeholder + link_candidates)
-  4. 이미지 병렬 캡셔닝 + ac:link 병렬 resolve (동시에)
-  5. 토큰 trim (16K)
-  6. 반환
-"""
+You are a **technical requirements synthesizer**.
 
-import asyncio
-import re
-from typing import Optional
-from bs4 import BeautifulSoup, NavigableString, Tag
-from dataclasses import dataclass, field
-import tiktoken
+You have been given **raw exploration results** from a requirements extraction agent.  
+Your job is to organize this into a **clean, implementation-ready technical requirements document**.
 
+Another LLM will later read this document and **implement the system based on it**.
 
-# ------------------------------------------------------------------ #
-# Data classes
-# ------------------------------------------------------------------ #
+For context, today's date is **{date}**.
 
-@dataclass
-class LinkCandidate:
-    id: int
-    type: str                            # "link" | "ac:link"
-    anchor: Optional[str]
-    url: Optional[str] = None
-    content_title: Optional[str] = None
-    space_key: Optional[str] = None
+---
 
+## Task
 
-@dataclass
-class ImageRef:
-    placeholder: str   # "__IMG_0__"
-    src: str
+Take all the raw technical information gathered during exploration and produce a **structured requirements document**.
 
+Requirements:
 
-@dataclass
-class ParseResult:
-    text: str
-    link_candidates: list[LinkCandidate]
-    image_refs: list[ImageRef]
+- Preserve **ALL technically relevant details**
+- Do **not omit anything** that could affect implementation
+- Prioritize **concrete technical facts** over high-level explanations
+- Prefer **structured lists and code blocks** instead of long descriptive paragraphs
 
+---
 
-# ------------------------------------------------------------------ #
-# Token trim
-# ------------------------------------------------------------------ #
+# Output Format
 
-def trim_to_token_limit(text: str, max_tokens: int = 16000) -> str:
-    enc = tiktoken.get_encoding("cl100k_base")
-    tokens = enc.encode(text)
-    if len(tokens) <= max_tokens:
-        return text
-    trimmed = enc.decode(tokens[:max_tokens])
-    return trimmed + "\n\n[이하 내용 생략 - 토큰 한도 초과]"
+Structure the document **exactly as follows**:
 
+## Goal Summary
+Restate what the user wants to build in **2–3 sentences**.
 
-# ------------------------------------------------------------------ #
-# ref_url → page_id 추출
-# ------------------------------------------------------------------ #
+---
 
-def extract_page_id(ref_url: str) -> Optional[str]:
-    """
-    지원 형식:
-      - https://confluence.company.com/pages/12345
-      - https://confluence.company.com/display/DEV/페이지제목
-      - //go/conf/12345
-    """
-    # /pages/{id} 형식
-    match = re.search(r"/pages/(\d+)", ref_url)
-    if match:
-        return match.group(1)
+## Architecture Overview (Optional)
 
-    # //go/conf/{id} 형식
-    match = re.search(r"go/conf/(\d+)", ref_url)
-    if match:
-        return match.group(1)
+Include this section **only if the exploration results describe system architecture, component relationships, workflows, or execution flow.**
 
-    return None
+Describe:
 
+- major components
+- how components interact
+- request / data flow
 
-# ------------------------------------------------------------------ #
-# HTML 파서
-# ------------------------------------------------------------------ #
+Use **bullet points**.
 
-def parse_confluence_html(
-    storage_html: str,
-    current_space_key: str = "",
-) -> ParseResult:
-    soup = BeautifulSoup(storage_html, "lxml-xml")
+---
 
-    segments: list[str] = []
-    text_buffer: list[str] = []
-    link_candidates: list[LinkCandidate] = []
-    image_refs: list[ImageRef] = []
-    image_exts = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
+## Core Concepts
 
-    def commit():
-        if text_buffer:
-            joined = " ".join(text_buffer).strip()
-            if joined:
-                segments.append(joined)
-            text_buffer.clear()
+List the **key technical components** discovered.
 
-    def add_image(src: str) -> str:
-        idx = len(image_refs)
-        placeholder = f"__IMG_{idx}__"
-        image_refs.append(ImageRef(placeholder=placeholder, src=src))
-        return placeholder
+Examples depending on project type:
 
-    def add_link(type_: str, anchor: Optional[str], **kwargs) -> str:
-        link_id = len(link_candidates) + 1
-        link_candidates.append(
-            LinkCandidate(id=link_id, type=type_, anchor=anchor, **kwargs)
-        )
-        return f"[LINK:{link_id}]"
+- APIs or routes
+- services or modules
+- LangGraph agents or nodes
+- UI pages or components
+- database models
+- workflows or pipelines
 
-    def replace_images_in_node(node: Tag) -> str:
-        """테이블/ui-tab 내부 이미지를 placeholder로 치환한 raw HTML 반환"""
-        node_copy = BeautifulSoup(str(node), "lxml-xml")
-        for img in node_copy.find_all("img"):
-            src = img.get("src", "")
-            if src:
-                img.replace_with(add_image(src))
-        for att in node_copy.find_all("ri:attachment"):
-            fname = att.get("ri:filename", "").lower()
-            if any(fname.endswith(ext) for ext in image_exts):
-                att.replace_with(add_image(fname))
-        return str(node_copy)
+Explain each **briefly**.
 
-    def walk(node, list_type: str = "", depth: int = 0, ol_counter: Optional[list] = None):
-        if ol_counter is None:
-            ol_counter = [0]
+---
 
-        for child in node.children:
-            if isinstance(child, NavigableString):
-                t = child.strip()
-                if t:
-                    text_buffer.append(t)
-                continue
+## Technical Specifications
 
-            if not child.name:
-                continue
+List **all concrete technical details found**:
 
-            name = child.name
+- API endpoints (method, path, request/response format)
+- Data models and schemas
+- Authentication and authorization flows
+- Required headers, parameters, or environment variables
+- Constraints, rate limits, or error handling rules
 
-            # 블록 요소
-            if name in {"p", "h1", "h2", "h3", "h4", "h5", "h6", "blockquote"}:
-                commit()
-                walk(child, list_type, depth, ol_counter)
-                commit()
+---
 
-            # 리스트
-            elif name == "ul":
-                commit()
-                walk(child, list_type="ul", depth=depth + 1, ol_counter=ol_counter)
-                commit()
+<!-- ✅ [추가] 연동/연결 방식 명시 섹션 — MCP REST 혼동 방지 -->
+## Integration & Connection Details (Optional)
 
-            elif name == "ol":
-                commit()
-                walk(child, list_type="ol", depth=depth + 1, ol_counter=[0])
-                commit()
+Include this section **only if external services, libraries, or protocols are involved**.
 
-            elif name == "li":
-                commit()
-                indent = "  " * depth
-                if list_type == "ol":
-                    ol_counter[0] += 1
-                    prefix = f"{indent}{ol_counter[0]}. "
-                else:
-                    prefix = f"{indent}- "
-                text_buffer.append(prefix)
-                walk(child, list_type, depth, ol_counter)
-                commit()
+| Service | Protocol | Library & Version | Auth Method |
+|---------|---------|-------------------|-------------|
+| {service} | REST / SSE / WebSocket / gRPC | {library name} | API Key / Basic Auth / Token |
 
-            # 이미지 (단독)
-            elif name == "img" and child.get("src"):
-                commit()
-                segments.append(add_image(child["src"]))
+Also include:
+- Connection/initialization code pattern
+- Example connection snippet if found in source
 
-            elif name == "ri:attachment":
-                fname = child.get("ri:filename", "").lower()
-                if any(fname.endswith(ext) for ext in image_exts):
-                    commit()
-                    segments.append(add_image(fname))
+> ⚠️ If protocol or connection method is **NOT explicitly stated** in the source:
+> mark as `[ASSUMED]` and note that verification is needed before implementation.
+<!-- ✅ [추가 끝] -->
 
-            # 링크: <a>
-            elif name == "a":
-                href = child.get("href", "")
-                if href:
-                    anchor = child.get_text(" ", strip=True) or None
-                    text_buffer.append(add_link("link", anchor=anchor, url=href))
+---
 
-            # 링크: <ac:link>
-            elif name == "ac:link":
-                ri_url = child.find("ri:url")
-                ri_page = child.find("ri:page")
-                body = child.find("ac:plain-text-link-body")
-                anchor = body.get_text(strip=True) if body else None
+## Implementation Requirements
 
-                if ri_url:
-                    href = ri_url.get("ri:value", "")
-                    if href:
-                        text_buffer.append(add_link("link", anchor=anchor, url=href))
-                elif ri_page:
-                    title = ri_page.get("ri:content-title", "")
-                    space = ri_page.get("ri:space-key") or current_space_key
-                    if title:
-                        text_buffer.append(add_link(
-                            "ac:link",
-                            anchor=anchor or title,
-                            content_title=title,
-                            space_key=space,
-                        ))
+List the **specific things the user needs to implement**, ordered by dependency:
 
-            # 코드 블록
-            elif name == "ac:structured-macro" and child.get("ac:name") == "code":
-                commit()
-                lang_tag = child.find("ac:parameter", {"ac:name": "language"})
-                lang = lang_tag.get_text(strip=True) if lang_tag else ""
-                body_tag = child.find("ac:plain-text-body")
-                code = body_tag.get_text(strip=True) if body_tag else ""
-                if code:
-                    segments.append(f"```{lang}\n{code}\n```")
+- Each item should be **actionable and concrete**
+- Group **related items together**
+- Flag items that depend on **external decisions or unknowns**
 
-            # 테이블 → raw HTML (내부 이미지만 placeholder 치환)
-            elif name == "table":
-                commit()
-                for a in child.find_all("a", href=True):
-                    add_link("link", anchor=a.get_text(" ", strip=True) or None, url=a["href"])
-                for ac_link in child.find_all("ac:link"):
-                    ri_page = ac_link.find("ri:page")
-                    if ri_page:
-                        title = ri_page.get("ri:content-title", "")
-                        space = ri_page.get("ri:space-key") or current_space_key
-                        if title:
-                            add_link("ac:link", anchor=title, content_title=title, space_key=space)
-                segments.append(replace_images_in_node(child))
+<!-- ✅ [추가] MoSCoW 우선순위 분류 -->
+Categorize each item by MoSCoW priority:
 
-            # ui-tabs → raw HTML (내부 이미지만 placeholder 치환)
-            elif name == "ac:structured-macro" and child.get("ac:name") == "ui-tabs":
-                commit()
-                segments.append(replace_images_in_node(child))
+**Must Have** — required for the implementation to be considered complete
 
-            # draw.io
-            elif name == "ac:structured-macro" and child.get("ac:name") == "drawio":
-                commit()
-                segments.append("[다이어그램: draw.io]")
+**Should Have** — important but not blocking; implement if straightforward
 
-            else:
-                walk(child, list_type, depth, ol_counter)
+**Could Have** — nice to have; implement only if time permits
 
-    walk(soup.body or soup)
-    commit()
+**Won't Have (this iteration)** — explicitly out of scope; do not implement
+<!-- ✅ [추가 끝] -->
 
-    return ParseResult(
-        text="\n\n".join(s for s in segments if s.strip()),
-        link_candidates=link_candidates,
-        image_refs=image_refs,
-    )
+---
 
+<!-- ✅ [추가] 제약사항 섹션 — 기술/환경/아키텍처/인증 제약 명시 -->
+## Constraints
 
-# ------------------------------------------------------------------ #
-# MCP 툴
-# ------------------------------------------------------------------ #
+List all constraints that must be respected during implementation:
 
-# 아래 함수들은 사내 구현체로 교체
-async def fetch_confluence_html(page_id: str) -> str:
-    """Confluence API로 storage HTML 가져오기"""
-    raise NotImplementedError
+- **Technical**: language version, allowed libraries, existing patterns to preserve
+- **Environment**: network, proxy, execution environment
+- **Architecture**: schema compatibility, protocol restrictions, existing API contracts
+- **Auth**: authentication method, secret management rules
 
-async def resolve_ac_link(content_title: str, space_key: str) -> Optional[str]:
-    """content_title + space_key → confluence URL"""
-    raise NotImplementedError
+If a constraint is not explicitly stated in the source but is inferred, mark it as `[ASSUMED]`.
+<!-- ✅ [추가 끝] -->
 
-async def caption_image(src: str) -> str:
-    """사내 비전 모델로 이미지 캡셔닝"""
-    raise NotImplementedError
+---
 
+<!-- ✅ [추가] 의존성 섹션 — 구현 순서 및 외부 의존성 명시 -->
+## Dependencies
 
-@mcp.tool()
-async def read_confluence(ref_url: str, query: str) -> str:
-    """
-    Confluence 페이지를 읽어서 내용을 반환합니다.
-    
-    LINK_CANDIDATES 섹션에 있는 링크 중 추가 탐색이 필요한 링크가 있으면
-    해당 링크의 url을 ref_url로 넣어 다시 호출하세요.
+List implementation order and external dependencies:
 
-    Args:
-        ref_url: Confluence 페이지 URL
-                 (https://confluence.../pages/12345 또는 //go/conf/링크)
-        query: 사용자 질의 (페이지 내용 해석에 활용)
-    """
-    # 1. page_id 추출
-    page_id = extract_page_id(ref_url)
-    if not page_id:
-        return f"page_id를 추출할 수 없습니다: {ref_url}"
+- Items that must be implemented first
+- External service or library dependencies
+- Sequential relationships between implementation items
+<!-- ✅ [추가 끝] -->
 
-    # 2. HTML 가져오기
-    storage_html = await fetch_confluence_html(page_id)
+---
 
-    # 3. 파싱
-    result = parse_confluence_html(storage_html)
+## Open Questions
 
-    # 4. 이미지 캡셔닝 + ac:link resolve 병렬 처리
-    ac_links = [lk for lk in result.link_candidates if lk.type == "ac:link"]
+List anything:
 
-    caption_tasks = [caption_image(img.src) for img in result.image_refs]
-    resolve_tasks = [resolve_ac_link(lk.content_title, lk.space_key) for lk in ac_links]
+- unclear
+- missing
+- requiring the **user's decision before implementation**
 
-    all_results = await asyncio.gather(*caption_tasks, *resolve_tasks)
+---
 
-    captions = all_results[:len(caption_tasks)]
-    resolved_urls = all_results[len(caption_tasks):]
+## Pages Crawled
 
-    # 5. 이미지 placeholder → 캡션 텍스트 치환
-    content = result.text
-    for img_ref, caption in zip(result.image_refs, captions):
-        content = content.replace(img_ref.placeholder, f"[이미지: {caption}]")
+*(Only if URLs were explored)*
 
-    # 6. ac:link url 채우기
-    for lk, url in zip(ac_links, resolved_urls):
-        lk.url = url
+List each URL with **one line describing what it contributed**.
 
-    # 7. LINK_CANDIDATES 섹션 추가
-    if result.link_candidates:
-        lines = ["=== LINK_CANDIDATES ==="]
-        for lk in result.link_candidates:
-            lines.append(
-                f"LINK:{lk.id} | url={lk.url or 'None'} | anchor={lk.anchor}"
-            )
-        content += "\n\n" + "\n".join(lines)
+Example:
 
-    # 8. 토큰 trim
-    return trim_to_token_limit(content, max_tokens=16000)
+- `https://example.com/api-doc` — API request/response schema
+- `https://example.com/auth` — authentication flow
+
+---
+
+# Guidelines
+
+1. Preserve **technical details verbatim** — do not paraphrase API specs, schemas, or contracts
+2. If the **same information appears in multiple sources**, consolidate and note the sources
+3. Do **not invent or infer requirements** not found during exploration
+4. If **Mode B was used (no URLs)**, note that specifications are based on **general knowledge**
+<!-- ✅ [추가] 추정 항목 명시 규칙 -->
+5. Anything not explicitly stated in the source must be marked as **`[ASSUMED]`** — never silently fill in gaps
+<!-- ✅ [추가 끝] -->
