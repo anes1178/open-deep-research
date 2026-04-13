@@ -66,9 +66,7 @@ Task 툴로 `general-purpose` 서브에이전트를 실행합니다.
 사용자의 질의: {질의}
 
 [URL이 있는 경우]
-1. 질의에 포함된 URL을 확인합니다.
-   - Confluence URL이면 confluence_mcp 툴 사용
-   - GitHub URL이면 github_mcp 툴 사용
+1. subagent 실행
 2. 페이지를 fetch하고 기술적으로 관련된 정보를 추출합니다.
 3. 반환된 링크 목록에서 context와 text를 보고 관련 있는 서브링크만 재귀적으로 탐색합니다.
    - 관련 링크: API 스펙, 인증 흐름, 데이터 모델, 설정 방법
