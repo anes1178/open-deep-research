@@ -35,14 +35,24 @@ user-invocable: true
 
 ## Step 1: 스크립트 실행
 
-Bash로 실행합니다:
+Bash로 실행합니다. 질의에 따옴표·특수문자가 포함될 수 있으므로 인자로 넘기지 않고 환경변수로 전달합니다:
 
 ```bash
-cd <프로젝트 루트> && python3 scripts/deepresearch_call.py "<질의>" <mode>
+QUERY="<질의>" MODE="<plan 또는 summarize>" \
+  python3 "$(dirname "$0")/../.claude/skills/internal-research/scripts/deepresearch_call.py" "$MODE" <<'QEOF'
+<질의 그대로>
+QEOF
 ```
 
-- 실행 경로는 `scripts/deepresearch_call.py`가 있는 프로젝트 루트입니다.
-- 질의에 따옴표가 포함될 수 있으므로 bash 인자 전달 시 주의합니다.
+또는 스킬 디렉토리 절대경로를 직접 사용합니다:
+
+```bash
+python3 /path/to/.claude/skills/internal-research/scripts/deepresearch_call.py "<mode>" <<'QEOF'
+<질의 그대로>
+QEOF
+```
+
+스크립트는 stdin으로 질의를 받거나 첫 번째 인자로도 받습니다.
 
 스크립트 출력:
 - `stdout` → 리서치 결과 (그대로 사용)
