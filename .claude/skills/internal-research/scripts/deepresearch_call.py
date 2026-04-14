@@ -71,7 +71,7 @@ def call_api(query: str, mode: str) -> str:
     resp = requests.post(
         f"{base_url}/agent/deepresearch/completions",
         json=payload,
-        timeout=120,
+        timeout=300,
     )
     resp.raise_for_status()
 

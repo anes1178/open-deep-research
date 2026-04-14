@@ -46,7 +46,10 @@ user-invocable: true
 ### Step 2: 스크립트 실행
 
 스킬 디렉토리 내 `scripts/deepresearch_call.py`를 Bash로 실행합니다.
-질의에 특수문자·줄바꿈이 포함될 수 있으므로 Python heredoc으로 전달합니다:
+질의에 특수문자·줄바꿈이 포함될 수 있으므로 Python heredoc으로 전달합니다.
+
+**중요: LangGraph가 여러 노드를 순차 실행하므로 응답에 시간이 걸립니다.**
+**Bash 툴 실행 시 반드시 timeout을 600000ms(10분)로 설정합니다.**
 
 ```bash
 python3 ~/.claude/skills/internal-research/scripts/deepresearch_call.py <plan|summarize> << 'QEOF'
