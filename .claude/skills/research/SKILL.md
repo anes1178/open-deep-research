@@ -1,23 +1,29 @@
 ---
-name: internal-research
+name: research
 description: |
   사내 서비스(Confluence, GitHub 등) 딥리서치부터 코드 구현까지 통합 관리합니다.
 
   호출 방식:
-  - `/internal-research plan "질의"` — LangGraph 리서치 → requirements/ 저장
-  - `/internal-research summarize "질의"` — LangGraph 리서치 → summarize/ 저장
-  - `/internal-research do` — 최근 requirements 파일 기반 코드 구현
-  - `/internal-research do requirements/auth-api.md` — 특정 파일 지정해서 구현
+  - `/research plan "질의"` — LangGraph 리서치 → requirements/ 저장
+  - `/research summarize "질의"` — LangGraph 리서치 → summarize/ 저장
+  - `/research do` — 최근 requirements 파일 기반 코드 구현
+  - `/research do requirements/auth-api.md` — 특정 파일 지정해서 구현
 
   Examples:
-  - `/internal-research plan "https://confluence... 인증 API 스펙 뽑아줘"`
-  - `/internal-research summarize "https://confluence... 요약해줘"`
-  - `/internal-research do`
+  - `/research plan "https://confluence... 인증 API 스펙 뽑아줘"`
+  - `/research summarize "https://confluence... 요약해줘"`
+  - `/research do`
+
+  Triggers: research, 리서치, 조사, 분석, 요약, 문서화, 스펙, 명세, 정리,
+  plan, summarize, do, 구현, 실행, 계획, 설계, 사내문서, confluence, github,
+  스킬, 딥리서치, deepresearch, 아키텍처, 요구사항, requirements
+
+  Do NOT use for: general web search, public documentation lookup.
 argument-hint: "[plan|summarize|do] [\"질의\" 또는 파일경로]"
 user-invocable: true
 ---
 
-# Internal-Research Skill
+# research Skill
 
 > 사내 LangGraph 딥리서치(`plan`/`summarize`) + 요구사항 기반 코드 구현(`do`)을 하나의 스킬로 통합합니다.
 
@@ -43,7 +49,23 @@ user-invocable: true
 - `plan` 또는 `summarize` 키워드 이후 텍스트를 질의로 사용합니다.
 - 질의가 비어있으면 AskUserQuestion으로 입력받습니다.
 
-### Step 2: 스크립트 실행
+### Step 2: 핵심 항목 확인 (선택)
+
+AskUserQuestion으로 한 줄 질문합니다:
+
+- **plan 모드**: "설계/구현 시 반드시 포함되어야 할 기능이 있나요? (없으면 Enter)"
+- **summarize 모드**: "반드시 정리되어야 할 항목이 있나요? (없으면 Enter)"
+
+답변이 있으면 질의 끝에 덧붙입니다:
+```
+{원래 질의}
+
+[집중 항목]: {사용자 답변}
+```
+
+답변이 없으면 원래 질의 그대로 사용합니다.
+
+### Step 3: 스크립트 실행
 
 스킬 디렉토리 내 `scripts/deepresearch_call.py`를 Bash로 실행합니다.
 질의에 특수문자·줄바꿈이 포함될 수 있으므로 Python heredoc으로 전달합니다.
@@ -52,7 +74,7 @@ user-invocable: true
 **Bash 툴 실행 시 반드시 timeout을 600000ms(10분)로 설정합니다.**
 
 ```bash
-python3 ~/.claude/skills/internal-research/scripts/deepresearch_call.py <plan|summarize> << 'QEOF'
+python3 ~/.claude/skills/research/scripts/deepresearch_call.py <plan|summarize> << 'QEOF'
 <질의 그대로>
 QEOF
 ```
@@ -61,14 +83,14 @@ QEOF
 - `stdout` → 리서치 결과 (그대로 사용)
 - `stderr`에 `ERROR:` 포함 → 메시지를 사용자에게 표시하고 즉시 종료
 
-### Step 3: 파일명 결정
+### Step 4: 파일명 결정
 
 질의 내용을 바탕으로 kebab-case 파일명을 결정합니다.
 - "인증 API 스펙 뽑아줘" → `auth-api`
 - "결제 서비스 아키텍처" → `payment-service-architecture`
 - URL만 있는 경우 → URL 경로의 마지막 세그먼트 기반
 
-### Step 4: 결과 저장
+### Step 5: 결과 저장
 
 스크립트 stdout을 **재가공하지 않고 그대로** 저장합니다.
 
@@ -76,7 +98,7 @@ QEOF
 ```
 <!-- generated: {오늘 날짜} -->
 <!-- status: draft -->
-<!-- source: internal-research -->
+<!-- source: research -->
 <!-- mode: plan -->
 
 {stdout 전체}
@@ -85,7 +107,7 @@ QEOF
 **summarize** → `summarize/{파일명}.md`
 ```
 <!-- generated: {오늘 날짜} -->
-<!-- source: internal-research -->
+<!-- source: research -->
 <!-- mode: summarize -->
 
 {stdout 전체}
@@ -95,7 +117,7 @@ QEOF
 
 저장 완료 후:
 > "저장 완료: `{경로}`  
-> 코드 구현을 시작하려면 `/internal-research do`를 실행하세요." (plan 모드만)
+> 코드 구현을 시작하려면 `/research do`를 실행하세요." (plan 모드만)
 
 ---
 
@@ -111,10 +133,10 @@ QEOF
 ls -t requirements/*.md 2>/dev/null | head -5
 ```
 
-각 파일을 Read해서 `source: internal-research` 메타데이터가 있는 파일을 선택합니다.
+각 파일을 Read해서 `source: research` 메타데이터가 있는 파일을 선택합니다.
 
 - 파일 없음 → 다음 안내 후 종료:
-  > "구현할 요구사항 파일이 없습니다. 먼저 `/internal-research plan \"질의\"`를 실행하세요."
+  > "구현할 요구사항 파일이 없습니다. 먼저 `/research plan \"질의\"`를 실행하세요."
 - 여러 개 → 가장 최근 파일 사용, 사용자에게 알림
 - `status: implemented` → AskUserQuestion으로 재구현 여부 확인
 
